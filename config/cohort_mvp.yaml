@@ -1,0 +1,31 @@
+# MVP cohort configuration (Phase 1 + Phase 2)
+
+# Recommended: Lung Adenocarcinoma (TCGA-LUAD)
+cohort_study_id: "TCGA-LUAD"
+
+# Filters to apply when preprocessing the raw MAF
+# (Exact field names depend on the MAF/metadata source you use.)
+filters:
+  tumor_source: "primary_solid_tumor"  # placeholder value; update once you inspect MAF fields
+  coding_regions_only: true          # placeholder for "protein-changing variants only"
+
+# Minimal working definition for TP53 (Phase 2 MVP)
+# Phase 3 refines this into LoF vs GoF/missense categories.
+tp53_binary_definition:
+  wild_type_label: "WT"
+  mutated_definition:
+    include_variants:
+      - "nonsense"
+      - "missense"
+      - "frameshift"
+      - "splice_site"
+    # You will implement the mapping from MAF columns to these categories later.
+    ignore_non_coding: true
+
+# Output locations (relative to repo root)
+paths:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  tables_dir: "outputs/tables"
+  figures_dir: "outputs/figures"
+

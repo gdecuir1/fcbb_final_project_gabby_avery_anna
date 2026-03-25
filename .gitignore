@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual envs
+.venv/
+venv/
+
+# Data and outputs (large / reproducible artifacts)
+data/
+outputs/
+*.parquet
+*.csv
+*.tsv
+*.json
+*.png
+*.pdf
+*.log
+
+# IDE/editor
+.DS_Store
+.cursor/
+.vscode/
+

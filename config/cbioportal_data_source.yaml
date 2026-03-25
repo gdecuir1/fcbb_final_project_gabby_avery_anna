@@ -1,0 +1,14 @@
+# Optional: cBioPortal download/acquisition configuration (used by `scripts/01_...`)
+#
+# If you choose to download MAF files directly, you can ignore this.
+
+cbioportal:
+  base_url: "https://www.cbioportal.org/api"
+  # TODO: Fill with the exact endpoint strategy you choose:
+  # - Fetch study/case list, then pull mutations by study
+  # - Or use a direct MAF download if supported by your chosen source.
+  auth:
+    # Many endpoints are public; if your class requires credentials,
+    # you can inject tokens via environment variables later.
+    token_env_var: "CBIOPPORTAL_TOKEN"  # placeholder name
+

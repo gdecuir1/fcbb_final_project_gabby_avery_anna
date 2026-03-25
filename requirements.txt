@@ -1,0 +1,14 @@
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+seaborn>=0.12.0
+matplotlib>=3.7.0
+requests>=2.31.0
+tqdm>=4.65.0
+pyyaml>=6.0.0
+
+# Notes:
+# - Start with these core scientific + plotting deps.
+# - DISCOVER / CNA classification may require additional libs depending
+#   on the exact implementation you choose later.
+

@@ -1,0 +1,30 @@
+# TP53 functional grouping (Phase 3)
+#
+# Goal: split TP53 into three groups:
+# - TP53_WT
+# - TP53_LoF (nonsense / frameshift / splice-site)
+# - TP53_GoF_or_missense (missense / dominant-negative / GoF-like)
+
+groups:
+  tp53_wt_label: "TP53_WT"
+  tp53_lof_label: "TP53_LoF"
+  tp53_gof_label: "TP53_GoF_missense"
+
+lof_includes:
+  variant_classes:
+    - "nonsense"
+    - "frameshift"
+    - "splice_site"
+
+gof_or_missense_includes:
+  # In many mutation datasets, missense may not directly map to GoF vs DN.
+  # Later you can refine this using:
+  # - curated TP53 functional annotation tables, OR
+  # - algorithms like SIFT/PolyPhen/REVEL (as available in your source)
+  variant_classes:
+    - "missense"
+
+classification_notes:
+  - "Start with missense as a proxy for GoF/DN; then improve if you have functional annotations."
+  - "Decide how to treat multi-allelic / compound mutations later (e.g., sample-level dominance rule)."
+

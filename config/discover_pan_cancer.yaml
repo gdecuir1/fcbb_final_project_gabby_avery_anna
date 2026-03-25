@@ -1,0 +1,19 @@
+# Optional pan-cancer DISCOVER configuration (Phase 4)
+#
+# Fill in only if you run script `scripts/06_scale_discover_pan_cancer.py`.
+
+discover:
+  # Placeholder parameters; tune based on what DISCOVER expects.
+  top_k: 50
+  min_samples: 20
+  multiple_testing_correction: "fdr_bh"  # placeholder
+
+# Pan-cancer cohort scope
+pan_cancer:
+  # Recommended approach: start from a single source of truth (e.g., a fixed set of TCGA studies)
+  # so your sample IDs and variant schemas are consistent.
+  studies:
+    - "TCGA-LUAD"
+    - "TCGA-LUSC"
+    # TODO: expand once you decide full pan-cancer scope.
+
