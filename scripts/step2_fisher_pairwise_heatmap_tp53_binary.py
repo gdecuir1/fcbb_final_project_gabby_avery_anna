@@ -61,6 +61,7 @@ def plot_fisher_heatmap(
     # Symmetric p-value matrix (default 1.0 = not updated; pairs get filled in the loop).
     # initialize p-val matrix
     p_val_matrix = pd.DataFrame(1.0, index=genes, columns=genes)
+    or_matrix = pd.DataFrame(1.0, index=genes, columns=genes)
     for g1, g2 in combinations(genes, 2):
         # 2x2 table for co-occurrence of mutations in gene1 vs gene2 within this stratum:
         #              gene2=1   gene2=0
@@ -75,10 +76,12 @@ def plot_fisher_heatmap(
         table = [[a, b], [c, d]]
 
         # calculate fisher's exact test
-        _, pval = fisher_exact(table)
+        odds_ratio, pval = fisher_exact(table)
         # populate matrix
         p_val_matrix.loc[g1, g2] = pval
         p_val_matrix.loc[g2, g1] = pval
+        or_matrix.loc[g1, g2] = odds_ratio
+        or_matrix.loc[g2, g1] = odds_ratio
 
     # Brighter cells = smaller p-values; tiny epsilon avoids log(0).
     # convert to -log10(p-value) for visualization
@@ -102,6 +105,18 @@ def plot_fisher_heatmap(
     for i in range(n_genes):
         for j in range(i + 1, n_genes):
             if p_val_matrix.iloc[j, i] <= 0.05:
+                g1 = genes[i]
+                g2 = genes[j]
+                pval = p_val_matrix.iloc[j, i]
+                odds = or_matrix.iloc[j, i]
+                if odds > 1:
+                    relationship = "Co-occurring"
+                elif odds < 1:
+                    relationship = "Mutually exclusive"
+                else:
+                    relationship = "Independent"
+                print(f"{g1} & {g2}: p={pval:.4f}, OR={odds:.2f} ({relationship})")
+                
                 plt.text(
                     i + 0.5,
                     j + 0.5,
