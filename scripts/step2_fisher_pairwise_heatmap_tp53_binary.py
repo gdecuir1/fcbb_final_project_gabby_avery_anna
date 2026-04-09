@@ -7,47 +7,52 @@ stratified by strict binary TP53 status (WT vs mutated).
 
 Inputs
 ------
-- `config/gene_lists/mvp_driver_genes.csv` (genes to test; ~30-50)
-- `data/processed/gene_mutation_binarized_matrix.parquet` (or tidy equivalent)
-- `data/processed/tp53_binary_status.parquet`
+- In-memory mutation matrix from `step1_digestion_and_processing.preprocess()`
 
 Outputs
---------
-1. Pairwise p-value tables:
-   - `outputs/tables/fisher_tp53_binary_pairwise_pvalues.csv`
-   - (optionally) `outputs/tables/fisher_tp53_binary_pairwise_effects.csv`
-2. Heatmap(s):
-   - `outputs/figures/fisher_tp53_binary_pvalues_heatmap.png`
+-------
+- Heatmaps saved under `outputs/figures/`:
+  - `fisher_tp53_binary_pairwise_heatmap_TP53_mut.png`
+  - `fisher_tp53_binary_pairwise_heatmap_TP53_WT.png`
 
-Functionality (to implement)
--------------------------------
+Functionality
+-------------
 - For each TP53 stratum:
   - Build a 2x2 contingency table for each gene pair:
     - Presence/absence of mutation in gene A
     - Presence/absence of mutation in gene B
   - Compute Fisher's exact test p-values.
-- Combine/plot results:
-  - At minimum: p-value heatmap for each stratum, or a single combined result.
-
-Notes
------
-- Decide whether to:
-  - Use sample-level binary mutation presence (recommended for co-occurrence).
-  - Exclude gene pairs with zero counts in any contingency cell.
-- Apply multiple-testing correction if required by your class rubric (optional step).
+  - Plot lower-triangle -log10(p) heatmap (same logic as before).
 """
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from scipy.stats import fisher_exact
+from __future__ import annotations
+
+import argparse
+import sys
 from itertools import combinations
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from scipy.stats import fisher_exact
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = _SCRIPT_DIR.parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 from step1_digestion_and_processing import preprocess
 
-def plot_fisher_heatmap(df, title):
+
+def plot_fisher_heatmap(
+    df: pd.DataFrame,
+    title: str,
+    save_path: Path | None = None,
+    show: bool = True,
+):
     # drop status column (only want binary data)
-    df_genes = df.drop(columns=["TP53_status"], errors='ignore')
+    df_genes = df.drop(columns=["TP53_status"], errors="ignore")
     genes = df_genes.columns.tolist()
     n_genes = len(genes)
 
@@ -58,14 +63,14 @@ def plot_fisher_heatmap(df, title):
         a = ((df_genes[g1] == 1) & (df_genes[g2] == 1)).sum()
         b = ((df_genes[g1] == 1) & (df_genes[g2] == 0)).sum()
         c = ((df_genes[g1] == 0) & (df_genes[g2] == 1)).sum()
-        d = ((df_genes[g1] == 0) & (df_genes[g2] == 0)).sum() 
+        d = ((df_genes[g1] == 0) & (df_genes[g2] == 0)).sum()
 
-        table = [[a,b],[c,d]]
+        table = [[a, b], [c, d]]
 
         # calculate fisher's exact test
         _, pval = fisher_exact(table)
         # populate matrix
-        p_val_matrix.loc[g1, g2] = pval 
+        p_val_matrix.loc[g1, g2] = pval
         p_val_matrix.loc[g2, g1] = pval
 
     # convert to -log10(p-value) for visualization
@@ -74,30 +79,81 @@ def plot_fisher_heatmap(df, title):
     mask = np.triu(np.ones_like(log_p_matrix, dtype=bool))
 
     # plot the heatmap
-    plt.figure(figsize=(10,8))
-    ax = sns.heatmap(
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(
         log_p_matrix,
         mask=mask,
         cmap="Reds",
         annot=False,
         linewidths=0.5,
-        cbar_kws={'label': '-log10(p-value)'}
+        cbar_kws={"label": "-log10(p-value)"},
     )
     # add asterisks for statistically significant pairs
     for i in range(n_genes):
-        for j in range(i+1, n_genes):
+        for j in range(i + 1, n_genes):
             if p_val_matrix.iloc[j, i] <= 0.05:
-                plt.text(i + 0.5, j + 0.5, '*', ha='center', va='center', color='black', fontsize=20)
+                plt.text(
+                    i + 0.5,
+                    j + 0.5,
+                    "*",
+                    ha="center",
+                    va="center",
+                    color="black",
+                    fontsize=20,
+                )
     plt.title(title)
     plt.tight_layout()
-    plt.show()
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
     return p_val_matrix
 
-if __name__ == "__main__":
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="TP53 binary stratified Fisher heatmaps.")
+    parser.add_argument(
+        "--out-dir",
+        default=str(REPO_ROOT / "outputs" / "figures"),
+        help="Directory for saved PNGs.",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="Do not open interactive plot windows (save PNG only).",
+    )
+    args = parser.parse_args()
+
+    out_dir = Path(args.out_dir)
+    if not out_dir.is_absolute():
+        out_dir = REPO_ROOT / out_dir
+
     tp53_mut, tp53_wt = preprocess()
+    show = not args.no_show
+
     print("Generating Heatmap for TP53 Mutated Cohort...")
-    p_vals_mut = plot_fisher_heatmap(tp53_mut, title="Gene Co-occurrence (TP53 Mutated)")
+    plot_fisher_heatmap(
+        tp53_mut,
+        title="Gene Co-occurrence (TP53 Mutated)",
+        save_path=out_dir / "fisher_tp53_binary_pairwise_heatmap_TP53_mut.png",
+        show=show,
+    )
 
     print("Generating Heatmap for TP53 Wild-Type Cohort...")
-    p_vals_wt = plot_fisher_heatmap(tp53_wt, title="Gene Co-occurrence (TP53 Wild-Type)")
+    plot_fisher_heatmap(
+        tp53_wt,
+        title="Gene Co-occurrence (TP53 Wild-Type)",
+        save_path=out_dir / "fisher_tp53_binary_pairwise_heatmap_TP53_WT.png",
+        show=show,
+    )
+
+    print(f"Saved heatmaps under {out_dir}")
+
+
+if __name__ == "__main__":
+    main()
