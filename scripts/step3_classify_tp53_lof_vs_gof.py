@@ -43,14 +43,17 @@ from pathlib import Path
 
 import pandas as pd
 
+# Repo layout + import path (same pattern as step 2).
 _SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = _SCRIPT_DIR.parent
+# Step-3-only outputs live here so other `data/processed/` paths stay untouched.
 LOF_GOF_DIR = REPO_ROOT / "data" / "processed" / "lof_gof"
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from step1_digestion_and_processing import build_mutation_matrix
 
+# Subset of MAF `Variant_Classification` strings: treat as loss-of-function TP53.
 # MAF Variant_Classification values used in step1
 LOF_VARIANT_CLASSES = frozenset(
     {
@@ -60,10 +63,12 @@ LOF_VARIANT_CLASSES = frozenset(
         "Splice_Site",
     }
 )
+# Missense here proxies GoF / dominant-negative until you add external scores (REVEL, etc.).
 MISSENSE_VARIANT_CLASSES = frozenset({"Missense_Mutation"})
 
 TP53_GENE = "TP53"
 
+# String labels written to CSV and used by step 4 for filtering.
 LABEL_WT = "TP53_WT"
 LABEL_LOF = "TP53_LoF"
 LABEL_GOF = "TP53_GoF_missense"
@@ -71,7 +76,9 @@ LABEL_GOF = "TP53_GoF_missense"
 
 def _sample_tp53_group(subdf: pd.DataFrame) -> str:
     """Assign TP53 functional group from all TP53 rows for one sample."""
+    # Union of variant classes observed for this sample at TP53.
     classes = set(subdf["Variant_Classification"].dropna().astype(str).unique())
+    # If both LoF and missense exist, LoF wins (explicit priority rule).
     if classes & LOF_VARIANT_CLASSES:
         return LABEL_LOF
     if classes & MISSENSE_VARIANT_CLASSES:
@@ -86,11 +93,13 @@ def classify_tp53_functional_groups(df: pd.DataFrame, all_luad_sample_ids) -> pd
     Build one row per sample with tp53_group from long-format merged mutation table.
     Samples with no TP53 rows are TP53_WT.
     """
+    # Long-format merged table from step 1: only TP53 gene rows carry functional class info.
     tp53_rows = df[df["Hugo_Symbol"] == TP53_GENE]
     labels: dict[str, str] = {}
     for sample_id, grp in tp53_rows.groupby("Tumor_Sample_Barcode"):
         labels[str(sample_id)] = _sample_tp53_group(grp)
 
+    # One row per LUAD patient; missing key => never had a TP53 hit in filtered data => WT.
     out = pd.DataFrame({"sample_id": pd.Index(all_luad_sample_ids).astype(str)})
     out["tp53_group"] = out["sample_id"].map(lambda s: labels.get(s, LABEL_WT))
     return out
@@ -103,6 +112,7 @@ def attach_tp53_group_to_matrix(
     """Join tp53_group; align by matrix index (tumor sample barcode)."""
     id_to_group = dict(zip(tp53_status["sample_id"], tp53_status["tp53_group"]))
     mm = mutation_matrix.copy()
+    # mutation_matrix index matches `Tumor_Sample_Barcode` / clinical `Sample ID`.
     mm["tp53_group"] = mm.index.astype(str).map(lambda s: id_to_group.get(s, LABEL_WT))
     return mm
 
@@ -110,6 +120,7 @@ def attach_tp53_group_to_matrix(
 def _validate_binary_vs_group(mutation_matrix: pd.DataFrame, tp53_status: pd.DataFrame) -> None:
     """TP53 column 0 should match TP53_WT; TP53 1 should not be WT."""
     mm = mutation_matrix.copy()
+    # Quick invariant: binary TP53 gene column must agree with three-way label.
     mp = dict(zip(tp53_status["sample_id"].astype(str), tp53_status["tp53_group"]))
     for sid in mm.index.astype(str):
         g = mp.get(sid, LABEL_WT)
@@ -125,6 +136,7 @@ def split_by_tp53_group(mutation_matrix_with_group: pd.DataFrame):
     Return three dataframes (WT / LoF / GoF+missense), each including gene columns
     plus tp53_group (and TP53_status if present). Use for Fisher heatmaps like step2.
     """
+    # Convenience helper if you call step 3 functions from a notebook instead of step 4.
     mm = mutation_matrix_with_group
     wt = mm[mm["tp53_group"] == LABEL_WT].copy()
     lof = mm[mm["tp53_group"] == LABEL_LOF].copy()
@@ -148,6 +160,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Rebuild the same objects as step 1 (long table + binary matrix + clinical LUAD list).
     maf_path = args.maf or None
     clin_path = args.clinical or None
     if maf_path and clin_path:
@@ -157,9 +170,11 @@ def main() -> None:
     else:
         df, mutation_matrix, clinical_la = build_mutation_matrix()
 
+    # Functional labels derived from TP53 rows' Variant_Classification in `df`.
     all_ids = clinical_la["Sample ID"].unique()
     tp53_status = classify_tp53_functional_groups(df, all_ids)
 
+    # Match step 1 naming: Mut/WT column for readability in exported matrix.
     mutation_matrix = mutation_matrix.copy()
     mutation_matrix["TP53_status"] = mutation_matrix[TP53_GENE].apply(
         lambda x: "Mut" if int(x) == 1 else "WT"
@@ -167,6 +182,7 @@ def main() -> None:
     mm_out = attach_tp53_group_to_matrix(mutation_matrix, tp53_status)
     _validate_binary_vs_group(mutation_matrix.drop(columns=["TP53_status"], errors="ignore"), tp53_status)
 
+    # CSVs for step 4 (and notebooks): status table + full matrix with group column.
     out_status = Path(args.out_status)
     out_matrix = Path(args.out_matrix)
     out_status.parent.mkdir(parents=True, exist_ok=True)

@@ -37,6 +37,7 @@ import pandas as pd
 import seaborn as sns
 from scipy.stats import fisher_exact
 
+# Allow `python scripts/step2_...py` from repo root: import step1 from `scripts/`.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = _SCRIPT_DIR.parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -51,14 +52,20 @@ def plot_fisher_heatmap(
     save_path: Path | None = None,
     show: bool = True,
 ):
+    # Fisher is run only on gene columns (0/1 mutation presence); drop cohort label.
     # drop status column (only want binary data)
     df_genes = df.drop(columns=["TP53_status"], errors="ignore")
     genes = df_genes.columns.tolist()
     n_genes = len(genes)
 
+    # Symmetric p-value matrix (default 1.0 = not updated; pairs get filled in the loop).
     # initialize p-val matrix
     p_val_matrix = pd.DataFrame(1.0, index=genes, columns=genes)
     for g1, g2 in combinations(genes, 2):
+        # 2x2 table for co-occurrence of mutations in gene1 vs gene2 within this stratum:
+        #              gene2=1   gene2=0
+        #   gene1=1       a        b
+        #   gene1=0       c        d
         # build 2x2 contingency table
         a = ((df_genes[g1] == 1) & (df_genes[g2] == 1)).sum()
         b = ((df_genes[g1] == 1) & (df_genes[g2] == 0)).sum()
@@ -73,11 +80,13 @@ def plot_fisher_heatmap(
         p_val_matrix.loc[g1, g2] = pval
         p_val_matrix.loc[g2, g1] = pval
 
+    # Brighter cells = smaller p-values; tiny epsilon avoids log(0).
     # convert to -log10(p-value) for visualization
     log_p_matrix = -np.log10(p_val_matrix.astype(float) + 1e-10)
     # hide upper triangle and diagonal
     mask = np.triu(np.ones_like(log_p_matrix, dtype=bool))
 
+    # Lower triangle only: each unordered gene pair appears once in the plot.
     # plot the heatmap
     plt.figure(figsize=(10, 8))
     sns.heatmap(
@@ -88,6 +97,7 @@ def plot_fisher_heatmap(
         linewidths=0.5,
         cbar_kws={"label": "-log10(p-value)"},
     )
+    # Mark pairs with p <= 0.05 (uncorrected) in the lower triangle.
     # add asterisks for statistically significant pairs
     for i in range(n_genes):
         for j in range(i + 1, n_genes):
@@ -103,6 +113,7 @@ def plot_fisher_heatmap(
                 )
     plt.title(title)
     plt.tight_layout()
+    # Persist figure next to step 4 outputs; optional interactive display.
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,10 +140,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve output directory relative to repo root when a relative path is passed.
     out_dir = Path(args.out_dir)
     if not out_dir.is_absolute():
         out_dir = REPO_ROOT / out_dir
 
+    # Same mutation matrices as step 1, split by TP53_mut vs TP53_WT.
     tp53_mut, tp53_wt = preprocess()
     show = not args.no_show
 
