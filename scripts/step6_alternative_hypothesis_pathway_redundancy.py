@@ -14,7 +14,7 @@ Inputs
 ------
 - `config/pathways/pathway_to_genes.csv`
 - `data/processed/gene_mutation_binarized_matrix.parquet`
-- `data/processed/tp53_functional_status.parquet`
+- `data/processed/lof_gof/tp53_functional_status.csv` (from step 3)
 
 Outputs
 --------
@@ -44,11 +44,20 @@ from __future__ import annotations
 from pathlib import Path
 import argparse
 
+_REPO = Path(__file__).resolve().parent.parent
+_DEFAULT_TP53_FUNCTIONAL = str(
+    _REPO / "data" / "processed" / "lof_gof" / "tp53_functional_status.csv"
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Alternative hypothesis: pathway redundancy (TP53 LoF vs WT).")
     parser.add_argument("--pathway-map", default="config/pathways/pathway_to_genes.csv", help="Pathway to genes CSV.")
-    parser.add_argument("--tp53-status", default="data/processed/tp53_functional_status.parquet", help="TP53 functional groups.")
+    parser.add_argument(
+        "--tp53-status",
+        default=_DEFAULT_TP53_FUNCTIONAL,
+        help="TP53 functional groups (step 3 CSV under processed/lof_gof/).",
+    )
     parser.add_argument(
         "--mutation-matrix",
         default="data/processed/gene_mutation_binarized_matrix.parquet",
