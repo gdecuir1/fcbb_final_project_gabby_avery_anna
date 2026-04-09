@@ -24,9 +24,12 @@ from pathlib import Path
 
 import pandas as pd
 
+# Project root (parent of `scripts/`) so data paths work whether you run from repo root or `scripts/`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-
+# ---------------------------------------------------------------------------
+# Analysis parameters: which genes and which MAF variant classes to keep
+# ---------------------------------------------------------------------------
 GENE_LIST = [
     "TP53", "RB1", "ATM",
     "KRAS", "EGFR", "PIK3CA", "AKT3", "PTEN", "ERBB4",
@@ -64,17 +67,21 @@ def build_mutation_matrix(
     clinical_data_LA : DataFrame
         LUAD-only clinical subset used for the merge.
     """
+    # --- Load full MAF-style mutation table (one row per variant call) ---
     data_all = pd.read_csv(Path(maf_path).expanduser(), sep="\t")
 
+    # --- Keep only coding / protein-altering classes and the curated gene list ---
     data_filtered = data_all[data_all["Variant_Classification"].isin(CODING_VARIANT_CLASSES)]
     data_filtered = data_filtered[data_filtered["Hugo_Symbol"].isin(GENE_LIST)]
 
+    # --- Clinical metadata: restrict to lung adenocarcinoma (LUAD) rows ---
     clinical_data_all = pd.read_csv(Path(clinical_path).expanduser(), sep="\t")
     clinical_data_LA = clinical_data_all[
         (clinical_data_all["Cancer Type"] == "Lung Adenocarcinoma")
         & (clinical_data_all["Cancer Type Detailed"] == "Lung Adenocarcinoma")
     ].copy()
 
+    # --- Inner join: only samples that appear in both mutation and clinical tables ---
     df = pd.merge(
         data_filtered,
         clinical_data_LA,
@@ -83,6 +90,7 @@ def build_mutation_matrix(
         how="inner",
     )
 
+    # --- Wide matrix: index = tumor sample, columns = genes, values = 1 if any qualifying mutation ---
     mutation_matrix = (
         df.assign(mut=1)
         .pivot_table(
@@ -94,6 +102,7 @@ def build_mutation_matrix(
         )
     )
 
+    # --- Reindex so every LUAD patient is a row (0 = no mutation in any listed gene for this patient) ---
     all_luad_samples = clinical_data_LA["Sample ID"].unique()
     mutation_matrix = mutation_matrix.reindex(all_luad_samples, fill_value=0)
 
@@ -101,8 +110,10 @@ def build_mutation_matrix(
 
 
 def preprocess():
+    """Run full pipeline used interactively: build matrix, print checks, split by TP53 Mut vs WT."""
     df, mutation_matrix, clinical_data_LA = build_mutation_matrix()
 
+    # --- Quick size / ID checks after the merge ---
     # verify process of joining tables 
     print(df.shape)  # (55, 122)
     print(df["Tumor_Sample_Barcode"].nunique())  # 12
@@ -117,6 +128,7 @@ def preprocess():
     print((mutation_matrix.sum(axis=1) > 0).sum())
     print(mutation_matrix.columns.tolist())
 
+    # --- Consistency: every (sample, gene) in long `df` must be 1 in the pivot ---
     check_pairs = df[["Tumor_Sample_Barcode", "Hugo_Symbol"]].drop_duplicates()
     all_checks_pass = True
     for _, row in check_pairs.iterrows():
@@ -128,6 +140,7 @@ def preprocess():
 
     print(all_checks_pass)
 
+    # --- Binary TP53 stratification for step 2 (strict: mutated vs wild-type column) ---
     mutation_matrix = mutation_matrix.copy()
     mutation_matrix["TP53_status"] = mutation_matrix["TP53"].apply(
         lambda x: "Mut" if x == 1 else "WT"
@@ -136,6 +149,7 @@ def preprocess():
     print("TP53 status counts:")
     print(mutation_matrix["TP53_status"].value_counts())
 
+    # Two cohorts returned for separate Fisher / heatmap analyses
     tp53_mut = mutation_matrix[mutation_matrix["TP53_status"] == "Mut"].copy()
     tp53_wt = mutation_matrix[mutation_matrix["TP53_status"] == "WT"].copy()
 
