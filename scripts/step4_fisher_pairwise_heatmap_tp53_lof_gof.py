@@ -11,7 +11,7 @@ Inputs
 ------
 - `config/gene_lists/mvp_driver_genes.csv`
 - `data/processed/gene_mutation_binarized_matrix.parquet`
-- `data/processed/tp53_functional_status.parquet`
+- `data/processed/lof_gof/tp53_functional_status.csv` (from step 3)
 
 Outputs
 --------
@@ -42,14 +42,19 @@ from __future__ import annotations
 from pathlib import Path
 import argparse
 
+_REPO = Path(__file__).resolve().parent.parent
+_DEFAULT_TP53_FUNCTIONAL = str(
+    _REPO / "data" / "processed" / "lof_gof" / "tp53_functional_status.csv"
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Fisher tests + heatmaps (TP53 LoF vs GoF).")
     parser.add_argument("--genes", default="config/gene_lists/mvp_driver_genes.csv", help="Driver genes CSV.")
     parser.add_argument(
         "--tp53-status",
-        default="data/processed/tp53_functional_status.parquet",
-        help="TP53 functional group labels per sample.",
+        default=_DEFAULT_TP53_FUNCTIONAL,
+        help="TP53 functional group labels per sample (step 3 CSV under processed/lof_gof/).",
     )
     parser.add_argument(
         "--mutation-matrix",
