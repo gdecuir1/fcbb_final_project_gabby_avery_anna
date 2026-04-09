@@ -1,3 +1,25 @@
+"""
+step1_digestion_and_processing.py
+
+
+This script performs the first-phase data wrangling and preprocessing of mutation
+data for downstream cancer genomics analysis. 
+
+Main functionalities:
+- Reads a raw MAF (Mutation Annotation Format) file containing mutation calls as well 
+  as sample clinical metadata.
+- Filters for coding, protein-altering mutations only (frameshifts, nonsense, missense, splice site).
+- Restricts analysis to a hand-curated list of cancer-relevant genes (e.g. TP53, RB1, selected pathway genes, etc.).
+- Subsets to lung adenocarcinoma patient samples by merging mutation calls with clinical data.
+- Prepares a mutation presence/absence matrix fit for downstream statistical association, 
+  co-occurrence, and visualization analyses. 
+
+This script is meant to enable reproducible, minimal, and auditable mutation set construction 
+for pairwise Fisher's test and additional downstream investigations.
+
+"""
+
+
 import pandas as pd
 
 def preprocess():
