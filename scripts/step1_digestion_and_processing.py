@@ -17,9 +17,21 @@ Main functionalities:
 This script is meant to enable reproducible, minimal, and auditable mutation set construction 
 for pairwise Fisher's test and additional downstream investigations.
 
+Optional: download NCI GDC MC3 publication supplements (pan-cancer MAF + cohort archives +
+reference/filter/misc files from the MC3 publication page) into ``data/raw/mc3/``:
+
+  python scripts/step1_digestion_and_processing.py --download-mc3
+
+Controlled-access files require a GDC token (``GDC_TOKEN`` env or ``--gdc-token``).
+See: https://gdc.cancer.gov/about-data/publications/mc3-2017
+
 """
 
+from __future__ import annotations
 
+import argparse
+import os
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -48,6 +60,9 @@ DEFAULT_MAF_PATH = str(REPO_ROOT / "data" / "data_mutations.txt")
 DEFAULT_CLINICAL_PATH = str(
     REPO_ROOT / "data" / "lung_msk_mind_2020_clinical_data (1).tsv"
 )
+
+# Default folder for GDC MC3 publication file downloads (ingestion only; not used by preprocess).
+DEFAULT_MC3_RAW_DIR = REPO_ROOT / "data" / "raw" / "mc3"
 
 
 def build_mutation_matrix(
@@ -156,5 +171,75 @@ def preprocess():
     return tp53_mut, tp53_wt
 
 
+def _run_mc3_gdc_download(
+    out_dir: Path,
+    *,
+    gdc_token: str | None,
+    open_only: bool,
+    verify_md5: bool,
+    overwrite: bool,
+) -> None:
+    """Delegate to ``mc3_gdc_download`` (same directory as this script)."""
+    script_dir = Path(__file__).resolve().parent
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    from mc3_gdc_download import download_mc3_publication_supplements
+
+    download_mc3_publication_supplements(
+        out_dir,
+        gdc_token=gdc_token,
+        skip_controlled=open_only,
+        verify_md5=verify_md5,
+        overwrite=overwrite,
+    )
+
+
 if __name__ == "__main__":
-    tp53_mut, tp53_wt = preprocess()
+    parser = argparse.ArgumentParser(
+        description="Step 1: LUAD mutation preprocessing, or MC3 GDC raw data download.",
+    )
+    parser.add_argument(
+        "--download-mc3",
+        action="store_true",
+        help="Download MC3 publication files from GDC into data/raw/mc3 (see mc3_gdc_download).",
+    )
+    parser.add_argument(
+        "--mc3-out",
+        default=str(DEFAULT_MC3_RAW_DIR),
+        help="Output directory for --download-mc3 (default: <repo>/data/raw/mc3).",
+    )
+    parser.add_argument(
+        "--gdc-token",
+        default=os.environ.get("GDC_TOKEN"),
+        help="GDC download token for controlled MC3 files (or set env GDC_TOKEN).",
+    )
+    parser.add_argument(
+        "--mc3-open-only",
+        action="store_true",
+        help="With --download-mc3: only download open-access targets (skip controlled).",
+    )
+    parser.add_argument(
+        "--mc3-verify-md5",
+        action="store_true",
+        help="With --download-mc3: verify MD5 after each file (slow for large archives).",
+    )
+    parser.add_argument(
+        "--mc3-overwrite",
+        action="store_true",
+        help="With --download-mc3: re-download even if file exists with expected size.",
+    )
+    args = parser.parse_args()
+
+    if args.download_mc3:
+        out = Path(args.mc3_out).expanduser()
+        if not out.is_absolute():
+            out = REPO_ROOT / out
+        _run_mc3_gdc_download(
+            out,
+            gdc_token=args.gdc_token,
+            open_only=args.mc3_open_only,
+            verify_md5=args.mc3_verify_md5,
+            overwrite=args.mc3_overwrite,
+        )
+    else:
+        tp53_mut, tp53_wt = preprocess()
