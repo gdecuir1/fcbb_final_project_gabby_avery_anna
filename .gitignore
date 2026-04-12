@@ -20,7 +20,10 @@ outputs/
 *.pdf
 *.log
 
-# ✅ Allow outputs folder (override rules above)
+# ✅ Allow data and outputs folders (override rules above)
+!data/
+!data/**
+
 !outputs/
 !outputs/**
 
