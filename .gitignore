@@ -20,8 +20,11 @@ outputs/
 *.pdf
 *.log
 
+# ✅ Allow outputs folder (override rules above)
+!outputs/
+!outputs/**
+
 # IDE/editor
 .DS_Store
 .cursor/
 .vscode/
-
