@@ -1,0 +1,8 @@
+gene
+# TODO: Fill with ~30–50 known driver genes restricted to:
+# - RTK / RAS / PI3K pathway drivers
+# - Wnt pathway drivers
+# - core cell-cycle pathway drivers
+#
+# Keep `TP53` out of this list (TP53 is handled separately).
+

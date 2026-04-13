@@ -1,0 +1,6 @@
+pathway,gene
+# TODO: Fill with curated mappings you will use for:
+# - Phase 4 alternative hypothesis (pathway redundancy):
+#   "TP53 LoF tumors have higher co-mutation across parallel pathways"
+# Format: one row per (pathway, gene).
+
