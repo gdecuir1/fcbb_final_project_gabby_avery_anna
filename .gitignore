@@ -41,3 +41,7 @@
 .DS_Store
 .cursor/
 .vscode/
+
+# Large GDC / MC3 downloads (e.g. mc3.v0.2.8.PUBLIC.maf.gz ~700MB) — fetch locally, do not commit
+data/raw/mc3/
+**/*.PUBLIC.maf.gz
