@@ -1,0 +1,11 @@
+pathway_a	pathway_b	n_both_lof	p1_only_lof	p2_only_lof	neither_lof	odds_ratio_lof	p_value_lof	q_value_bh_lof	n_both_wt	p1_only_wt	p2_only_wt	neither_wt	odds_ratio_wt	p_value_wt	q_value_bh_wt	odds_ratio_diff
+Chromatin_remodeling	DNA_damage_cell_cycle	3	0	1	0		1.0	1.0	0	4	0	5		1.0	1.0	
+Chromatin_remodeling	Other_tumor_suppressor	2	1	0	1	inf	1.0	1.0	0	4	0	5		1.0	1.0	
+Chromatin_remodeling	RTK_RAS_PI3K	1	2	0	1	inf	1.0	1.0	4	0	0	5	inf	0.007936507936507934	0.07936507936507935	
+Chromatin_remodeling	Wnt_signaling	1	2	0	1	inf	1.0	1.0	1	3	0	5	inf	0.4444444444444445	1.0	
+DNA_damage_cell_cycle	Other_tumor_suppressor	2	2	0	0		1.0	1.0	0	0	0	9		1.0	1.0	
+DNA_damage_cell_cycle	RTK_RAS_PI3K	1	3	0	0		1.0	1.0	0	0	4	5		1.0	1.0	
+DNA_damage_cell_cycle	Wnt_signaling	1	3	0	0		1.0	1.0	0	0	1	8		1.0	1.0	
+Other_tumor_suppressor	RTK_RAS_PI3K	1	1	0	2	inf	1.0	1.0	0	0	4	5		1.0	1.0	
+Other_tumor_suppressor	Wnt_signaling	1	1	0	2	inf	1.0	1.0	0	0	1	8		1.0	1.0	
+RTK_RAS_PI3K	Wnt_signaling	1	0	0	3	inf	0.25	1.0	1	3	0	5	inf	0.4444444444444445	1.0	

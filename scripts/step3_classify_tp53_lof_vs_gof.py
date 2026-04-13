@@ -195,7 +195,9 @@ def main() -> None:
     print(tp53_status["tp53_group"].value_counts())
     print(f"Wrote {out_status}")
     print(f"Wrote {out_matrix}")
-
+    out_parquet = LOF_GOF_DIR.parent / "gene_mutation_binarized_matrix.parquet"
+    mutation_matrix.drop(columns=["TP53_status"], errors="ignore").to_parquet(out_parquet)
+    print(f"Wrote {out_parquet}")
 
 if __name__ == "__main__":
     main()
