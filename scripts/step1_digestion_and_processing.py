@@ -1,30 +1,36 @@
 """
 step1_digestion_and_processing.py
 
+Pipeline — **Step 1** (LUAD cohort, MSK-style tables)
 
-This script performs the first-phase data wrangling and preprocessing of mutation
-data for downstream cancer genomics analysis. 
+Build a reproducible **sample × gene binary mutation matrix** for lung adenocarcinoma (LUAD)
+from a MAF-like mutation table plus clinical metadata (e.g. cBioPortal exports).
 
-Main functionalities:
-- Reads a raw MAF (Mutation Annotation Format) file containing mutation calls as well 
-  as sample clinical metadata.
-- Filters for coding, protein-altering mutations only (frameshifts, nonsense, missense, splice site).
-- Restricts analysis to a hand-curated list of cancer-relevant genes (e.g. TP53, RB1, selected pathway genes, etc.).
-- Subsets to lung adenocarcinoma patient samples by merging mutation calls with clinical data.
-- Prepares a mutation presence/absence matrix fit for downstream statistical association, 
-  co-occurrence, and visualization analyses. 
+What this step does
+--------------------
+- Loads mutation calls and clinical metadata (tab-separated).
+- Keeps **coding / protein-altering** variant classes only (missense, nonsense, frameshift, splice).
+- Restricts to a **curated driver gene list** (``GENE_LIST``; shared with steps 3–5).
+- Restricts to **LUAD** patients via clinical ``Cancer Type`` / ``Cancer Type Detailed``.
+- Merges mutations with LUAD samples and pivots to a **0/1 matrix** (all LUAD samples as rows;
+  missing gene entries = 0).
 
-This script is meant to enable reproducible, minimal, and auditable mutation set construction 
-for pairwise Fisher's test and additional downstream investigations.
+Downstream
+----------
+- **Step 2** calls ``preprocess()`` for TP53-mut vs TP53-WT stratified Fisher heatmaps.
+- **Step 3** calls ``build_mutation_matrix()`` for LoF / GoF / WT TP53 labels and exports.
 
-Optional: download NCI GDC MC3 publication supplements (pan-cancer MAF + cohort archives +
-reference/filter/misc files from the MC3 publication page) into ``data/raw/mc3/``:
+Optional: MC3 (pan-cancer) data download
+-----------------------------------------
+To fetch NCI GDC MC3 publication supplements into ``data/raw/mc3/`` (used by **step 5**, not by
+the LUAD ``build_mutation_matrix`` path here), run::
 
   python scripts/step1_digestion_and_processing.py --download-mc3
 
-Controlled-access files require a GDC token (``GDC_TOKEN`` env or ``--gdc-token``).
-See: https://gdc.cancer.gov/about-data/publications/mc3-2017
+Use ``--mc3-open-only`` for open-access files only. Controlled files need ``GDC_TOKEN`` or
+``--gdc-token``. See: https://gdc.cancer.gov/about-data/publications/mc3-2017
 
+The downloader lives in ``mc3_gdc_download.py`` in the same directory as this script.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Project root (parent of `scripts/`) so data paths work whether you run from repo root or `scripts/`.
+# Project root (parent of `scripts/`) so data paths resolve from repo root or from `scripts/`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------------
@@ -61,7 +67,7 @@ DEFAULT_CLINICAL_PATH = str(
     REPO_ROOT / "data" / "lung_msk_mind_2020_clinical_data (1).tsv"
 )
 
-# Default folder for GDC MC3 publication file downloads (ingestion only; not used by preprocess).
+# Default folder for GDC MC3 publication file downloads (ingestion only; not used by LUAD preprocess).
 DEFAULT_MC3_RAW_DIR = REPO_ROOT / "data" / "raw" / "mc3"
 
 
@@ -71,7 +77,7 @@ def build_mutation_matrix(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Load MAF + clinical data, filter to LUAD and curated genes, return long merged
-    table and sample x gene binary matrix (all LUAD samples, fill 0 for missing).
+    table and sample × gene binary matrix (all LUAD samples, fill 0 for missing).
 
     Returns
     -------
@@ -82,21 +88,21 @@ def build_mutation_matrix(
     clinical_data_LA : DataFrame
         LUAD-only clinical subset used for the merge.
     """
-    # --- Load full MAF-style mutation table (one row per variant call) ---
+    # Load full MAF-style mutation table (one row per variant call).
     data_all = pd.read_csv(Path(maf_path).expanduser(), sep="\t")
 
-    # --- Keep only coding / protein-altering classes and the curated gene list ---
+    # Keep only coding / protein-altering classes and the curated gene list.
     data_filtered = data_all[data_all["Variant_Classification"].isin(CODING_VARIANT_CLASSES)]
     data_filtered = data_filtered[data_filtered["Hugo_Symbol"].isin(GENE_LIST)]
 
-    # --- Clinical metadata: restrict to lung adenocarcinoma (LUAD) rows ---
+    # Clinical metadata: restrict to lung adenocarcinoma (LUAD) rows.
     clinical_data_all = pd.read_csv(Path(clinical_path).expanduser(), sep="\t")
     clinical_data_LA = clinical_data_all[
         (clinical_data_all["Cancer Type"] == "Lung Adenocarcinoma")
         & (clinical_data_all["Cancer Type Detailed"] == "Lung Adenocarcinoma")
     ].copy()
 
-    # --- Inner join: only samples that appear in both mutation and clinical tables ---
+    # Inner join: only samples that appear in both mutation and clinical tables.
     df = pd.merge(
         data_filtered,
         clinical_data_LA,
@@ -105,7 +111,7 @@ def build_mutation_matrix(
         how="inner",
     )
 
-    # --- Wide matrix: index = tumor sample, columns = genes, values = 1 if any qualifying mutation ---
+    # Wide matrix: index = tumor sample, columns = genes, values = 1 if any qualifying mutation.
     mutation_matrix = (
         df.assign(mut=1)
         .pivot_table(
@@ -117,7 +123,7 @@ def build_mutation_matrix(
         )
     )
 
-    # --- Reindex so every LUAD patient is a row (0 = no mutation in any listed gene for this patient) ---
+    # Reindex so every LUAD patient is a row (0 = no mutation in listed genes for that patient).
     all_luad_samples = clinical_data_LA["Sample ID"].unique()
     mutation_matrix = mutation_matrix.reindex(all_luad_samples, fill_value=0)
 
@@ -125,16 +131,19 @@ def build_mutation_matrix(
 
 
 def preprocess():
-    """Run full pipeline used interactively: build matrix, print checks, split by TP53 Mut vs WT."""
+    """
+    Interactive / demo path for **step 2**: build matrix, print sanity checks, split by TP53 Mut vs WT.
+
+    Returns two matrices (TP53 mutated vs wild-type) each with a ``TP53_status`` column for stratified plots.
+    """
     df, mutation_matrix, clinical_data_LA = build_mutation_matrix()
 
-    # --- Quick size / ID checks after the merge ---
-    # verify process of joining tables 
-    print(df.shape)  # (55, 122)
-    print(df["Tumor_Sample_Barcode"].nunique())  # 12
-    print(df["Sample ID"].nunique())  # 12 
+    # Size and ID checks after the merge.
+    print(df.shape)
+    print(df["Tumor_Sample_Barcode"].nunique())
+    print(df["Sample ID"].nunique())
 
-    print(mutation_matrix.shape)  # (17, 15)
+    print(mutation_matrix.shape)
     print(mutation_matrix.head())
 
     print(mutation_matrix.index.is_unique)
@@ -143,7 +152,7 @@ def preprocess():
     print((mutation_matrix.sum(axis=1) > 0).sum())
     print(mutation_matrix.columns.tolist())
 
-    # --- Consistency: every (sample, gene) in long `df` must be 1 in the pivot ---
+    # Consistency: every (sample, gene) in long `df` must be 1 in the pivot.
     check_pairs = df[["Tumor_Sample_Barcode", "Hugo_Symbol"]].drop_duplicates()
     all_checks_pass = True
     for _, row in check_pairs.iterrows():
@@ -155,7 +164,7 @@ def preprocess():
 
     print(all_checks_pass)
 
-    # --- Binary TP53 stratification for step 2 (strict: mutated vs wild-type column) ---
+    # Binary TP53 stratification for step 2 (mutated vs wild-type column).
     mutation_matrix = mutation_matrix.copy()
     mutation_matrix["TP53_status"] = mutation_matrix["TP53"].apply(
         lambda x: "Mut" if x == 1 else "WT"
@@ -164,7 +173,6 @@ def preprocess():
     print("TP53 status counts:")
     print(mutation_matrix["TP53_status"].value_counts())
 
-    # Two cohorts returned for separate Fisher / heatmap analyses
     tp53_mut = mutation_matrix[mutation_matrix["TP53_status"] == "Mut"].copy()
     tp53_wt = mutation_matrix[mutation_matrix["TP53_status"] == "WT"].copy()
 

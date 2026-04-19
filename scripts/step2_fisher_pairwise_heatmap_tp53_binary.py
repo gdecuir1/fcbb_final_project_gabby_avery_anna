@@ -1,28 +1,25 @@
 """
 step2_fisher_pairwise_heatmap_tp53_binary.py
 
+Pipeline — **Step 2** (LUAD; TP53 binary stratification)
 
-Phase 2 (core stats MVP): Run Fisher's exact test for all pairs of genes,
-stratified by strict binary TP53 status (WT vs mutated).
+**Phase 2 — core co-occurrence screen:** pairwise Fisher exact tests on the curated gene list,
+stratified by **binary TP53** (mutated vs wild-type), mirroring the logic used later in step 4
+for LoF/GoF strata.
 
 Inputs
 ------
-- In-memory mutation matrix from `step1_digestion_and_processing.preprocess()`
+- In-memory matrices from ``step1_digestion_and_processing.preprocess()`` (TP53 Mut vs WT splits).
 
 Outputs
 -------
-- Heatmaps saved under `outputs/figures/`:
-  - `fisher_tp53_binary_pairwise_heatmap_TP53_mut.png`
-  - `fisher_tp53_binary_pairwise_heatmap_TP53_WT.png`
+- ``outputs/figures/fisher_tp53_binary_pairwise_heatmap_TP53_mut.png``
+- ``outputs/figures/fisher_tp53_binary_pairwise_heatmap_TP53_WT.png``
 
-Functionality
--------------
-- For each TP53 stratum:
-  - Build a 2x2 contingency table for each gene pair:
-    - Presence/absence of mutation in gene A
-    - Presence/absence of mutation in gene B
-  - Compute Fisher's exact test p-values.
-  - Plot lower-triangle -log10(p) heatmap (same logic as before).
+Method (per stratum)
+--------------------
+For each unordered gene pair, build a 2×2 table of mutation presence/absence, run Fisher's exact
+test, visualize **−log₁₀(p)** on a heatmap (lower triangle), and mark pairs with uncorrected *p* ≤ 0.05.
 """
 from __future__ import annotations
 
@@ -52,14 +49,12 @@ def plot_fisher_heatmap(
     save_path: Path | None = None,
     show: bool = True,
 ):
-    # Fisher is run only on gene columns (0/1 mutation presence); drop cohort label.
-    # drop status column (only want binary data)
+    # Gene columns only (0/1); drop TP53_status cohort label used for stratification.
     df_genes = df.drop(columns=["TP53_status"], errors="ignore")
     genes = df_genes.columns.tolist()
     n_genes = len(genes)
 
-    # Symmetric p-value matrix (default 1.0 = not updated; pairs get filled in the loop).
-    # initialize p-val matrix
+    # Symmetric p-value and odds-ratio matrices (1.0 default until each pair is filled).
     p_val_matrix = pd.DataFrame(1.0, index=genes, columns=genes)
     or_matrix = pd.DataFrame(1.0, index=genes, columns=genes)
     for g1, g2 in combinations(genes, 2):
@@ -67,7 +62,6 @@ def plot_fisher_heatmap(
         #              gene2=1   gene2=0
         #   gene1=1       a        b
         #   gene1=0       c        d
-        # build 2x2 contingency table
         a = ((df_genes[g1] == 1) & (df_genes[g2] == 1)).sum()
         b = ((df_genes[g1] == 1) & (df_genes[g2] == 0)).sum()
         c = ((df_genes[g1] == 0) & (df_genes[g2] == 1)).sum()
@@ -75,22 +69,16 @@ def plot_fisher_heatmap(
 
         table = [[a, b], [c, d]]
 
-        # calculate fisher's exact test
         odds_ratio, pval = fisher_exact(table)
-        # populate matrix
         p_val_matrix.loc[g1, g2] = pval
         p_val_matrix.loc[g2, g1] = pval
         or_matrix.loc[g1, g2] = odds_ratio
         or_matrix.loc[g2, g1] = odds_ratio
 
-    # Brighter cells = smaller p-values; tiny epsilon avoids log(0).
-    # convert to -log10(p-value) for visualization
+    # −log₁₀(p); small epsilon avoids log(0). Mask upper triangle (each pair once).
     log_p_matrix = -np.log10(p_val_matrix.astype(float) + 1e-10)
-    # hide upper triangle and diagonal
     mask = np.triu(np.ones_like(log_p_matrix, dtype=bool))
 
-    # Lower triangle only: each unordered gene pair appears once in the plot.
-    # plot the heatmap
     plt.figure(figsize=(10, 8))
     sns.heatmap(
         log_p_matrix,
@@ -100,8 +88,7 @@ def plot_fisher_heatmap(
         linewidths=0.5,
         cbar_kws={"label": "-log10(p-value)"},
     )
-    # Mark pairs with p <= 0.05 (uncorrected) in the lower triangle.
-    # add asterisks for statistically significant pairs
+    # Uncorrected p ≤ 0.05: print summary and mark cell with '*'.
     for i in range(n_genes):
         for j in range(i + 1, n_genes):
             if p_val_matrix.iloc[j, i] <= 0.05:
@@ -128,7 +115,6 @@ def plot_fisher_heatmap(
                 )
     plt.title(title)
     plt.tight_layout()
-    # Persist figure next to step 4 outputs; optional interactive display.
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,7 +128,9 @@ def plot_fisher_heatmap(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TP53 binary stratified Fisher heatmaps.")
+    parser = argparse.ArgumentParser(
+        description="Step 2: TP53 binary (Mut vs WT) stratified pairwise Fisher heatmaps (LUAD).",
+    )
     parser.add_argument(
         "--out-dir",
         default=str(REPO_ROOT / "outputs" / "figures"),

@@ -1,55 +1,60 @@
 """
 step7_alternative_hypothesis_structural_vs_point.py
 
-Hypothesis
-----------
-TP53-mutant tumors will favor copy-number alterations (CNA amplifications in PI3K/RTK), 
-whereas TP53-WT tumors will favor point mutations.
+Pipeline — **Step 7** (alternative hypothesis **#2**: structural vs point alterations)
 
-Inputs
-------
-- `data/processed/lof_gof/tp53_functional_status.csv` (from step 3)
-- `data/processed/gene_mutation_binarized_matrix.parquet` (point mutations from step 3)
-- A CNA-derived table (created here using data_cna.txt):
+**Hypothesis:** TP53 **LoF** tumors tend to enrich **CNA amplifications** in RTK/RAS/PI3K pathway
+genes, whereas TP53 **WT** tumors relatively favor **somatic point mutations** in those genes.
 
-Outputs
---------
-- Summary tables comparing TP53 LoF vs WT:
-  - `outputs/tables/structural_vs_point_tp53_lof_vs_wt.tsv`
+**Approach:** build a LUAD **point-mutation** matrix (coding hits in ``STRUCTURAL_POINT_GENE_LIST``)
+from the same MAF + clinical filters as step 1; load **gene × sample** CNA (cBioPortal-style
+``data_cna.txt``), transpose to sample × gene, binarize amplifications (default: discrete CNA ≥ 2);
+harmonize samples and genes with **step 3** ``tp53_functional_status.csv``. Per sample, summarize
+**any point**, **any CNA amp**, point-only, CNA-only, both, neither. Run **Fisher** tests
+(TP53_LoF vs TP53_WT) on sample-level flags and per gene × mechanism; apply **Benjamini–Hochberg**
+from step 5 utilities. Write TSVs, stacked bar + per-gene heatmap figures, and a Markdown report.
 
-Functionality (to implement)
--------------------------------
-- For each sample, generate:
-  - point_mutated = 1 if a point mutation exists in RTK/PI3K genes
-  - cna_amplified = 1 if a CNA amplification exists in RTK/PI3K genes
-- Compare rates between:
-  - TP53_LoF vs TP53_WT (and optionally GoF vs WT)
-- Statistical tests:
-  - Fisher's exact test per gene (or aggregated pathway level)
+Inputs (defaults under ``data/``; LUAD MSK-style exports)
+-------------------------------------------------------
+- ``data/processed/lof_gof/tp53_functional_status.csv`` (step 3)
+- ``data/data_mutations.txt``, ``data/lung_msk_mind_2020_clinical_data (1).tsv`` (MAF + clinical)
+- ``data/data_cna.txt`` (CNA matrix; genes as rows, samples as columns after Hugo_Symbol)
+- Writes / reads ``data/processed/expanded_point_mutation_matrix.parquet`` and
+  ``data/processed/cna_amplification_binarized_matrix.parquet`` (requires pyarrow for parquet I/O)
 
-Notes
------
-- 
+Outputs (under ``outputs/{tables,figures,reports}/``)
+----------------------------------------------------
+- ``structural_vs_point_tp53_lof_vs_wt_summary.tsv`` — Fisher on sample-level mechanism flags
+- ``structural_vs_point_tp53_lof_vs_wt_per_gene.tsv`` — per gene × mechanism with BH FDR
+- ``structural_vs_point_sample_level_mechanisms.tsv`` — per-sample mechanism class
+- ``structural_vs_point_mechanism_stacked_bar.png``, ``structural_vs_point_per_gene_heatmap.png``
+- ``step7_structural_vs_point_report.md``
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 import argparse
+import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import fisher_exact
 
-_REPO = Path(__file__).resolve().parent.parent
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO = _SCRIPT_DIR.parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
-_DEFAULT_TP53_FUNCTIONAL = _REPO / "data" / "processed" / "lof_gof" / "tp53_functional_status.csv" # from step 3
-_DEFAULT_MAF = _REPO / "data" / "data_mutations.txt" # downloaded from cbioportal 
-_DEFAULT_CLINICAL = _REPO / "data" / "lung_msk_mind_2020_clinical_data (1).tsv" # downloaded from cbioportal
-_DEFAULT_POINT_MUT = _REPO / "data" / "processed" / "expanded_point_mutation_matrix.parquet" # used the same logic from step 1
-_DEFAULT_RAW_CNA = _REPO / "data" / "data_cna.txt" # downloaded from cbioportal
-_DEFAULT_CNA_OUT = _REPO / "data" / "processed" / "cna_amplification_binarized_matrix.parquet" # created in this script
+from step5_scale_discover_pan_cancer import _df_to_markdown, benjamini_hochberg_fdr
+
+_DEFAULT_TP53_FUNCTIONAL = _REPO / "data" / "processed" / "lof_gof" / "tp53_functional_status.csv"
+_DEFAULT_MAF = _REPO / "data" / "data_mutations.txt"
+_DEFAULT_CLINICAL = _REPO / "data" / "lung_msk_mind_2020_clinical_data (1).tsv"
+_DEFAULT_POINT_MUT = _REPO / "data" / "processed" / "expanded_point_mutation_matrix.parquet"
+_DEFAULT_RAW_CNA = _REPO / "data" / "data_cna.txt"
+_DEFAULT_CNA_OUT = _REPO / "data" / "processed" / "cna_amplification_binarized_matrix.parquet"
 
 LABEL_LOF = "TP53_LoF"
 LABEL_WT = "TP53_WT"
@@ -68,36 +73,30 @@ STRUCTURAL_POINT_GENE_LIST = [
     "PIK3CA", "PIK3CB", "PIK3CD", "AKT1", "AKT2", "AKT3", "PDPK1", "MTOR", "RPTOR", "RICTOR", "RHEB",
 ]
 
-# converts an input path (string) into a Path 
 def _resolve_repo_path(p: str | Path) -> Path:
+    """Resolve ``p`` relative to the repository root when not absolute."""
     path = Path(p).expanduser()
     return path if path.is_absolute() else _REPO / path
 
-# add script for compatibility 
-from script.step5_scale_discover_pan_cancer import benjamini_hochberg_fdr, _df_to_markdown
 
-# tests whether a binary feature is more frequent/enriched in one group vs. another using Fisher's exact test 
 def run_fisher_binary_feature(
     feature: pd.Series,
     groups: pd.Series,
     group_a: str = LABEL_LOF,
     group_b: str = LABEL_WT,
 ) -> dict[str, object]:
-    # keep only two groups to compare (drop samples in other TP53 class)
+    # Restrict to the two TP53 groups being compared.
     mask = groups.isin([group_a, group_b])
     feature = feature.loc[mask].astype(int)
     groups = groups.loc[mask].astype(str)
 
-    # count positives/negatives in each group 
+    # 2×2 counts: feature present vs absent within each group.
     a_pos = int(((groups == group_a) & (feature == 1)).sum())
     a_neg = int(((groups == group_a) & (feature == 0)).sum())
     b_pos = int(((groups == group_b) & (feature == 1)).sum())
     b_neg = int(((groups == group_b) & (feature == 0)).sum())
 
-    # build a 2x2 contingency table
     table = [[a_pos, a_neg], [b_pos, b_neg]]
-
-    # run fisher's exact test
     odds_ratio, p_value = fisher_exact(table)
 
     return {
@@ -107,26 +106,24 @@ def run_fisher_binary_feature(
         "n_group_a_negative": a_neg,
         "n_group_b_positive": b_pos,
         "n_group_b_negative": b_neg,
-        "odds_ratio": odds_ratio, # odds_ratio > 1 = feature is more common in group_a than group_b
+        "odds_ratio": odds_ratio,  # OR > 1: feature more common in group_a than group_b
         "p_value": p_value, 
     }
 
-# loads tp53_functional_status.csv and returns table mapping each sample to its TP53 group
 def load_tp53_status(path: str | Path) -> pd.DataFrame:
     p = _resolve_repo_path(path)
     df = pd.read_csv(p, usecols=["sample_id", "tp53_group"], dtype=str)
 
-    # basic cleanup
+    # Normalize IDs; one row per sample.
     df["sample_id"] = df["sample_id"].str.strip()
     df["tp53_group"] = df["tp53_group"].str.strip()
 
-    # drop missing / duplicates
+    # Drop missing IDs and duplicate sample rows.
     df = df.dropna(subset=["sample_id", "tp53_group"]).drop_duplicates(subset=["sample_id"])
 
     return df
 
 
-# recreate a sample × gene binary mutation matrix from step 1 with STRUCTURAL_POINT_GENE_LIST
 def build_point_mutation_matrix(
     maf_path: str | Path,
     clinical_path: str | Path,
@@ -136,27 +133,24 @@ def build_point_mutation_matrix(
     clinical_path = Path(clinical_path).expanduser()
     out_path = Path(out_path).expanduser()
 
-    # load raw files
-    maf = pd.read_csv(maf_path, sep="\t", low_memory=False) # data_mutations.txt
-    clinical = pd.read_csv(clinical_path, sep="\t", low_memory=False) # lung_msk_mind_2020_clinical_data (1).tsv
+    maf = pd.read_csv(maf_path, sep="\t", low_memory=False)
+    clinical = pd.read_csv(clinical_path, sep="\t", low_memory=False)
 
-    # restrict to only include coding mutations 
     maf = maf[
         maf["Variant_Classification"].isin(CODING_VARIANT_CLASSES)
     ].copy()
 
-    # filter for only genes in STRUCTURAL_POINT_GENE_LIST
+    # RTK/RAS/PI3K-focused gene set (wider than step 1 ``GENE_LIST``).
     maf = maf[
         maf["Hugo_Symbol"].isin(STRUCTURAL_POINT_GENE_LIST)
     ].copy()
 
-    # filter for only LUAD patients 
     clinical_luad = clinical[
         (clinical["Cancer Type"] == "Lung Adenocarcinoma") &
         (clinical["Cancer Type Detailed"] == "Lung Adenocarcinoma")
     ].copy()
 
-    # keep only LUAD tumor samples 
+    # Inner join: mutations must belong to LUAD samples in the clinical table.
     merged = pd.merge(
         maf,
         clinical_luad,
@@ -165,7 +159,7 @@ def build_point_mutation_matrix(
         how="inner",
     )
 
-    # build binary matrix
+    # Sample × gene binary matrix (max over duplicate variant rows).
     mutation_matrix = (
         merged.assign(mut=1)
         .pivot_table(
@@ -177,14 +171,14 @@ def build_point_mutation_matrix(
         )
     )
 
-    # reindex so all LUAD samples appear, even if they have no selected mutations
+    # All LUAD samples as rows (zeros if no mutation in the pathway gene set).
     all_luad_samples = clinical_luad["Sample ID"].astype(str).unique()
     mutation_matrix = mutation_matrix.reindex(
         all_luad_samples,
         fill_value=0,
     )
 
-    # ensure all genes in STRUCTURAL_POINT_GENE_LIST are present as columns
+    # Fixed column order for downstream CNA join.
     mutation_matrix = mutation_matrix.reindex(
         columns=STRUCTURAL_POINT_GENE_LIST,
         fill_value=0,
@@ -193,7 +187,7 @@ def build_point_mutation_matrix(
     mutation_matrix.index = mutation_matrix.index.astype(str)
     mutation_matrix = mutation_matrix.astype("int8")
 
-    # save parquet
+    # Persist wide matrix for reruns (requires pyarrow).
     out_path.parent.mkdir(parents=True, exist_ok=True)
     mutation_matrix.to_parquet(out_path)
 
@@ -206,17 +200,11 @@ def build_point_mutation_matrix(
 
     return mutation_matrix
 
-# make sure we've restricted to out 17 patients 
-def load_raw_cna_matrix(
-        path: str | Path, 
-        clinical_path: str | Path
-    ) -> pd.DataFrame:
-
-    # load clinical + filter LUAD
+def load_raw_cna_matrix(path: str | Path, clinical_path: str | Path) -> pd.DataFrame:
+    """Load CNA gene × sample table and keep columns for LUAD samples in the clinical sheet."""
     clinical_p = _resolve_repo_path(clinical_path)
     clinical = pd.read_csv(clinical_p, sep="\t", low_memory=False)
 
-    # filter for only LUAD patients 
     clinical_luad = clinical[
         (clinical["Cancer Type"] == "Lung Adenocarcinoma") &
         (clinical["Cancer Type Detailed"] == "Lung Adenocarcinoma")
@@ -224,23 +212,20 @@ def load_raw_cna_matrix(
 
     luad_sample_ids = set(clinical_luad["Sample ID"].astype(str).str.strip())
 
-    # load CNA matrix
     p = _resolve_repo_path(path)
     df = pd.read_csv(p, sep="\t", low_memory=False)
 
-    # ensure/clean gene symbol column
     if "Hugo_Symbol" not in df.columns:
         df = df.rename(columns={df.columns[0]: "Hugo_Symbol"})
     df["Hugo_Symbol"] = df["Hugo_Symbol"].astype(str).str.strip()
 
-    # restrict to LUAD sample columns
     keep_sample_cols = [c for c in df.columns[1:] if str(c).strip() in luad_sample_ids]
     out = df[["Hugo_Symbol"] + keep_sample_cols].copy()
 
     return out
 
-# converts raw CNA table into a sample x gene matrix 
 def cna_gene_by_sample_to_sample_by_gene(cna_raw: pd.DataFrame) -> pd.DataFrame:
+    """Transpose gene × sample CNA to sample × gene numeric matrix."""
     cna = cna_raw.copy()
     cna = cna.drop_duplicates(subset=["Hugo_Symbol"], keep="first")
     cna = cna.set_index("Hugo_Symbol")
@@ -460,7 +445,7 @@ def write_report(
     ]
 
     lines = [
-        "# Step 8: Structural vs point mechanism shift",
+        "# Step 7: Structural vs point mechanism shift",
         "",
         "## Inputs",
         f"- TP53 status: `{tp53_path}`",
@@ -488,9 +473,9 @@ def write_report(
         _df_to_markdown(top_gene),
         "",
         "## Outputs",
-        f"- Summary table: `outputs/tables/structural_vs_point_tp53_lof_vs_wt_summary.tsv`",
-        f"- Per-gene table: `outputs/tables/structural_vs_point_tp53_lof_vs_wt_per_gene.tsv`",
-        f"- Sample-level mechanisms: `outputs/tables/structural_vs_point_sample_level_mechanisms.tsv`",
+        "- `outputs/tables/structural_vs_point_tp53_lof_vs_wt_summary.tsv`",
+        "- `outputs/tables/structural_vs_point_tp53_lof_vs_wt_per_gene.tsv`",
+        "- `outputs/tables/structural_vs_point_sample_level_mechanisms.tsv`",
         f"- Stacked bar figure: `{stacked_bar_path}`",
         f"- Per-gene heatmap: `{heatmap_path}`",
         "",
@@ -500,14 +485,20 @@ def write_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Alternative hypothesis: structural vs point (CNA amplification vs point mutation).")
+    parser = argparse.ArgumentParser(
+        description="Step 7: Structural (CNA amp) vs point mutation in RTK/RAS/PI3K genes (TP53 LoF vs WT).",
+    )
     parser.add_argument("--maf", default=str(_DEFAULT_MAF), help="Raw mutation MAF/TSV.")
     parser.add_argument("--clinical", default=str(_DEFAULT_CLINICAL), help="Clinical TSV.")
     parser.add_argument("--tp53-status", default=str(_DEFAULT_TP53_FUNCTIONAL), help="TP53 functional groups CSV.")
     parser.add_argument("--mutation-matrix", default=str(_DEFAULT_POINT_MUT), help="Point mutation matrix parquet.")
     parser.add_argument("--raw-cna", default=str(_DEFAULT_RAW_CNA), help="Raw gene-level CNA matrix.")
     parser.add_argument("--cna-threshold", type=int, default=2, help="Amplification threshold; default = 2.")
-    parser.add_argument("--out-dir", default="outputs", help="Base output directory.")
+    parser.add_argument(
+        "--out-dir",
+        default="outputs",
+        help="Repo-relative base directory; writes under <out-dir>/tables, /figures, /reports.",
+    )
     parser.add_argument(
         "--out-cna-matrix",
         default=str(_DEFAULT_CNA_OUT),
@@ -515,6 +506,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve output dirs from repo root when paths are relative.
     out_base = _resolve_repo_path(args.out_dir)
     out_tables = out_base / "tables"
     out_figures = out_base / "figures"
@@ -595,7 +587,7 @@ def main() -> None:
     tp53_counts = sample_level_df["tp53_group"].value_counts()
 
     report_path = write_report(
-        out_reports / "step8_structural_vs_point_report.md",
+        out_reports / "step7_structural_vs_point_report.md",
         tp53_path=tp53_path,
         point_path=point_path,
         raw_cna_path=raw_cna_path,

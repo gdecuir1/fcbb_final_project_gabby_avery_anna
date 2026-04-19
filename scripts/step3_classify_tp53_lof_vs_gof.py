@@ -1,38 +1,38 @@
 """
 step3_classify_tp53_lof_vs_gof.py
 
-Phase 3: Classify TP53 into three sample-level groups for stratified co-occurrence analysis.
+Pipeline — **Step 3** (LUAD; TP53 functional stratification)
 
-Uses the same MAF filters and LUAD cohort as step1 (coding variants only in the curated gene list).
+**Phase 3:** assign each sample a **TP53 functional group** for stratified analyses (steps 4, 6, 7).
+
+Uses the same MAF filters and LUAD cohort as **step 1** (coding variants in ``GENE_LIST`` only).
 
 Groups
 ------
-- TP53_WT: no coding TP53 variant in the merged mutation table (TP53 column == 0).
-- TP53_LoF: at least one TP53 variant classified as loss-of-function:
-  Nonsense_Mutation, Frame_Shift_Ins, Frame_Shift_Del, Splice_Site.
-- TP53_GoF_missense: has TP53 coding mutation but no LoF class above; missense is treated as
-  the GoF / dominant-negative proxy (refine later with SIFT/PolyPhen/REVEL or TP53 databases).
+- **TP53_WT:** no coding TP53 row in the merged long table (binary TP53 column == 0).
+- **TP53_LoF:** at least one TP53 variant in ``LOF_VARIANT_CLASSES`` (nonsense, frameshift, splice).
+- **TP53_GoF_missense:** TP53 coding hit with no LoF class; **missense is a pragmatic GoF proxy**
+  (could be refined with REVEL / TP53-specific databases in future work).
+- **TP53_other_coding:** other coding TP53 classes not mapped to LoF or missense.
 
-Multi-mutation rule
---------------------
-If a sample carries both LoF and missense TP53 hits, it is labeled TP53_LoF (LoF prioritized).
+**Rule:** if a sample has both LoF and missense TP53 calls, label **TP53_LoF** (LoF wins).
 
 Inputs
 ------
-- Same paths as step1 (`build_mutation_matrix`), or override via CLI.
+- Same MAF + clinical paths as ``step1_digestion_and_processing.build_mutation_matrix``, or CLI overrides.
 
-Outputs (default)
------------------
-All step-3 artifacts go under `data/processed/lof_gof/` so step 1–2 behavior and any other
-`data/processed/` files are untouched.
+Outputs (default: ``data/processed/lof_gof/``)
+----------------------------------------------
+Keeps step 1–2 paths unchanged by isolating new artifacts here.
 
-- data/processed/lof_gof/tp53_functional_status.csv — sample_id, tp53_group
-- data/processed/lof_gof/mutation_matrix_with_tp53_group.csv — full binary matrix + TP53_status + tp53_group
+- ``tp53_functional_status.csv`` — ``sample_id``, ``tp53_group``
+- ``mutation_matrix_with_tp53_group.csv`` — gene binary matrix + ``TP53_status`` + ``tp53_group``
+- ``../gene_mutation_binarized_matrix.parquet`` — gene-only matrix (parquet) for optional tools / step 7
 
 Downstream
 ----------
-Import `classify_tp53_functional_groups` and `attach_tp53_group_to_matrix` from this module, or
-load the CSVs under `lof_gof/` in step 4+ (drop `tp53_group` and `TP53_status` like step2).
+**Step 4** reads the matrix CSV for LoF vs GoF heatmaps. **Steps 6–7** use ``tp53_functional_status.csv``
+(and matrices with aligned sample IDs). For Fisher on genes only, drop metadata columns like step 2.
 """
 
 from __future__ import annotations
@@ -53,8 +53,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from step1_digestion_and_processing import build_mutation_matrix
 
-# Subset of MAF `Variant_Classification` strings: treat as loss-of-function TP53.
-# MAF Variant_Classification values used in step1
+# MAF Variant_Classification strings treated as TP53 loss-of-function (aligned with step 1 filters).
 LOF_VARIANT_CLASSES = frozenset(
     {
         "Nonsense_Mutation",
@@ -63,7 +62,7 @@ LOF_VARIANT_CLASSES = frozenset(
         "Splice_Site",
     }
 )
-# Missense here proxies GoF / dominant-negative until you add external scores (REVEL, etc.).
+# Missense used as GoF / dominant-negative proxy for this pipeline (see module docstring).
 MISSENSE_VARIANT_CLASSES = frozenset({"Missense_Mutation"})
 
 TP53_GENE = "TP53"
@@ -145,7 +144,9 @@ def split_by_tp53_group(mutation_matrix_with_group: pd.DataFrame):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Classify TP53 LoF vs GoF/missense (sample level).")
+    parser = argparse.ArgumentParser(
+        description="Step 3: TP53 LoF vs GoF/missense vs WT labels and annotated mutation matrix (LUAD).",
+    )
     parser.add_argument("--maf", default=None, help="Path to MAF-style mutations TSV.")
     parser.add_argument("--clinical", default=None, help="Path to clinical TSV.")
     parser.add_argument(

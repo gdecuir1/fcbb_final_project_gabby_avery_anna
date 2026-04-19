@@ -1,45 +1,36 @@
 """
-07_alternative_hypothesis_pathway_redundancy.py
+step6_alternative_hypothesis_pathway_redundancy.py
 
-Phase 4 backup plan (Alternative Hypothesis #1):
-"Pathway redundancy" co-occurrence.
+Pipeline — **Step 6** (alternative hypothesis **#1**: pathway redundancy)
 
-Hypothesis
-----------
-TP53 LoF tumors will show significantly higher rates of co-occurring mutations
-across parallel signaling pathways (e.g., RTK/RAS/PI3K + Wnt) compared to TP53 WT
-tumors, which may show more mutual exclusivity between pathways.
+**Hypothesis:** TP53 **LoF** tumors show stronger **pathway-level co-mutation** (e.g. RTK/RAS/PI3K
+with Wnt) than TP53 **WT**, where pathways may appear more mutually exclusive.
+
+**Approach:** map genes to pathways via ``config/pathways/pathway_to_genes.csv``; for each sample,
+set pathway binary = 1 if **any** gene in that pathway is mutated. Within **TP53_LoF** and
+**TP53_WT** separately, run **pairwise Fisher** tests on pathway pairs; merge strata for comparison
+(odds ratio difference, BH FDR on p-values within each stratum’s table). Write tables, side-by-side
+signed **−log₁₀(p)** heatmaps, and a short Markdown summary.
 
 Inputs
 ------
-- `config/pathways/pathway_to_genes.csv`
-- Gene × sample matrix from earlier steps, resolved in this order if ``--mutation-matrix`` is omitted:
-  1. ``data/processed/lof_gof/mutation_matrix_with_tp53_group.csv`` (step 3)
+- ``config/pathways/pathway_to_genes.csv`` (pathway, gene columns; ``#`` starts comment lines).
+- **Mutation matrix** (samples × genes). If ``--mutation-matrix`` is omitted, the first existing file
+  is used, in order:
+
+  1. ``data/processed/lof_gof/mutation_matrix_with_tp53_group.csv`` (step 3; metadata columns stripped)
   2. ``data/processed/mutation_matrix_with_tp53_group.csv``
-  3. ``outputs/tables/step5_pancancer_sample_gene_matrix.tsv`` (step 5 pan-cancer)
-  4. ``data/processed/gene_mutation_binarized_matrix.parquet`` (step 3, needs pyarrow)
-- ``data/processed/lof_gof/tp53_functional_status.csv`` (step 3; default for ``--tp53-status``)
+  3. ``outputs/tables/step5_pancancer_sample_gene_matrix.tsv`` (optional export if you materialize a step-5 matrix TSV)
+  4. ``data/processed/gene_mutation_binarized_matrix.parquet`` (requires pyarrow / fastparquet)
 
-Outputs
---------
-- `outputs/tables/pathway_redundancy_tp53_lof_vs_wt.tsv` — merged Fisher results (LoF vs WT cohorts)
-- `outputs/figures/pathway_redundancy_heatmap.png` — comparative heatmaps
-- `outputs/reports/step6_pathway_redundancy_report.md` — short run summary
+- **TP53 labels:** ``data/processed/lof_gof/tp53_functional_status.csv`` by default (step 3).
+  Sample IDs must match the matrix index (use the same cohort as the matrix).
 
-Functionality (to implement)
--------------------------------
-- Aggregate gene-level mutation binaries into pathway-level binaries per sample:
-  - pathway_mutated = 1 if ANY gene in pathway is mutated in the sample
-  - pathway_mutated = 0 otherwise
-- Compare pathway pairs (parallel pathways):
-  - For each pathway pair (A, B), compute enrichment/co-occurrence differences
-    between `TP53_LoF` vs `TP53_WT` groups.
-- Run Fisher's exact test (or chi-square) per pathway pair.
-
-Notes
------
-- Decide whether to allow overlapping genes across pathways.
-- Decide how many pathway pairs to test (all vs curated parallel pairs).
+Outputs (under ``outputs/{tables,figures,reports}/`` by default)
+-----------------------------------------------------------------
+- ``pathway_redundancy_tp53_lof_vs_wt.tsv`` — merged per–pathway-pair statistics
+- ``pathway_redundancy_heatmap.png`` — LoF vs WT comparative heatmaps
+- ``step6_pathway_redundancy_report.md`` — run summary
 """
 
 from __future__ import annotations
@@ -214,14 +205,16 @@ def plot_comparative_heatmap(lof_df: pd.DataFrame, wt_df: pd.DataFrame, out_path
     
     sns.heatmap(wt_mat, mask=mask, cmap="RdBu_r", center=0, vmin=-vmax, vmax=vmax,
                 ax=axes[1], cbar_kws={"label": "Signed -log10(p)"})
-    axes[1].set_title("TP53 WT: Pathway Interactions") # FIXED: This was mistakenly axes[0]
+    axes[1].set_title("TP53 WT: Pathway interactions")
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Alternative hypothesis: pathway redundancy (TP53 LoF vs WT).")
+    parser = argparse.ArgumentParser(
+        description="Step 6: Pathway redundancy (TP53 LoF vs WT) Fisher screen and heatmaps.",
+    )
     parser.add_argument("--pathway-map", default="config/pathways/pathway_to_genes.csv", help="Pathway to genes CSV.")
     parser.add_argument(
         "--tp53-status",
@@ -232,11 +225,9 @@ def main() -> None:
         "--mutation-matrix",
         default=None,
         help=(
-            "Gene-level binarized mutations (samples × genes). If omitted, uses the first file found: "
-            "data/processed/lof_gof/mutation_matrix_with_tp53_group.csv (step 3), "
-            "data/processed/mutation_matrix_with_tp53_group.csv, "
-            "outputs/tables/step5_pancancer_sample_gene_matrix.tsv, "
-            "or data/processed/gene_mutation_binarized_matrix.parquet."
+            "Sample × gene binary matrix (.csv, .tsv, or .parquet). If omitted, auto-detects the first "
+            "existing path among: lof_gof mutation_matrix (step 3), duplicate processed matrix, "
+            "optional step-5 matrix TSV if present, or gene_mutation_binarized_matrix.parquet."
         ),
     )
     parser.add_argument(

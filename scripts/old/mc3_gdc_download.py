@@ -1,10 +1,5 @@
 """
-mc3_gdc_download.py
-
-GDC **MC3 publication supplement** downloader (NCI MC3 / Pan-Cancer Atlas).
-
-Invoked from **step 1** with ``--download-mc3``; downloaded MAFs support **step 5**
-(pan-cancer Fisher screen). Do not commit large MAFs to Git—keep under ``data/raw/mc3/`` locally.
+GDC MC3 publication supplement downloader (NCI MC3 / Pan-Cancer Atlas).
 
 Uses official GDC manifest files (UUID, filename, md5, size) from:
   https://gdc.cancer.gov/about-data/publications/mc3-2017

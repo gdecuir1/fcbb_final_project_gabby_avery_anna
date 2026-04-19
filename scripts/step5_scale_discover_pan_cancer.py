@@ -1,25 +1,29 @@
 """
 step5_scale_discover_pan_cancer.py
 
-Pan-cancer scaling using the MC3 open-access public MAF (after step 1 ``--download-mc3``).
+Pipeline — **Step 5** (pan-cancer; MC3 public MAF)
 
-The Bioconductor DISCOVER method (R) is not bundled here; this step implements a
-transparent Python analogue used in many papers: sample-level binary mutation
-matrices, pairwise Fisher exact tests for co-occurrence / mutual exclusivity, and
-Benjamini–Hochberg FDR on the resulting p-values. Results are written to
-``outputs/tables/`` and summarized in ``outputs/reports/``.
+**Scale / “DISCOVER-style” screen** across tumor samples in the **NCI MC3 open-access public MAF**
+(typically after fetching data with **step 1** ``--download-mc3``). The R **DISCOVER** package is
+not used here; this step implements a transparent **Python analogue**: binary mutation matrix,
+all-pairs **Fisher exact** tests (co-occurrence / mutual exclusivity), and **Benjamini–Hochberg**
+FDR. Results go to ``outputs/tables/``, ``outputs/figures/``, and ``outputs/reports/``.
+
+Uses the same **gene list** and **coding variant classes** as step 1, and the same **TP53 LoF /
+GoF / WT** labeling rules as step 3 (applied from MAF ``Variant_Classification`` per sample).
 
 Inputs
 ------
-- ``data/raw/mc3/mc3.v0.2.8.PUBLIC.maf.gz`` (preferred), or pass ``--mc3-maf``.
-- If that file is missing and you omit ``--mc3-maf``, the script falls back to
-  ``tests/fixtures/minimal_mc3_public.maf`` with a **warning** (for local runs without the full download).
+- ``data/raw/mc3/mc3.v0.2.8.PUBLIC.maf.gz`` (preferred), or ``--mc3-maf`` / uncompressed ``.maf``.
+- If no public MAF is found and ``--mc3-maf`` is omitted, falls back to
+  ``tests/fixtures/minimal_mc3_public.maf`` with a **stderr warning** (smoke tests only).
 
 Outputs
 -------
 - ``outputs/tables/step5_pancancer_pairwise_fisher.tsv``
 - ``outputs/tables/step5_mutation_frequency_by_gene.tsv``
-- ``outputs/tables/step5_mutation_frequency_by_study_gene.tsv`` (if a study column exists)
+- ``outputs/tables/step5_mutation_frequency_by_study_gene.tsv`` (if a study column is detected)
+- ``outputs/tables/step5_tp53_group_counts.tsv``
 - ``outputs/figures/step5_pancancer_fisher_logp_heatmap.png``
 - ``outputs/reports/step5_pan_cancer_analytics_report.md``
 """
@@ -413,6 +417,7 @@ def write_report(
             "- `outputs/tables/step5_mutation_frequency_by_study_gene.tsv` (if study labels available)",
             "- `outputs/tables/step5_tp53_group_counts.tsv`",
             "- `outputs/figures/step5_pancancer_fisher_logp_heatmap.png`",
+            "- `outputs/reports/step5_pan_cancer_analytics_report.md`",
             "",
         ]
     )
@@ -421,7 +426,7 @@ def write_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Pan-cancer MC3 analytics + report (Fisher screen; DISCOVER-style summary).",
+        description="Step 5: Pan-cancer MC3 Fisher screen, FDR, heatmap, and Markdown report.",
     )
     parser.add_argument(
         "--mc3-maf",
@@ -532,7 +537,7 @@ def main() -> None:
     fisher_df = pairwise_fisher_results(matrix, GENE_LIST)
     fisher_df.to_csv(out_tables / "step5_pancancer_pairwise_fisher.tsv", sep="\t", index=False)
 
-    # Heatmap of -log10 p
+    # Heatmap of pairwise −log₁₀(p).
     logp = pd.DataFrame(np.nan, index=GENE_LIST, columns=GENE_LIST, dtype=float)
     for _, r in fisher_df.iterrows():
         g1, g2 = r["gene_a"], r["gene_b"]

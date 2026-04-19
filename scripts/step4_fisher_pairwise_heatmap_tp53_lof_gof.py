@@ -1,18 +1,22 @@
 """
 step4_fisher_pairwise_heatmap_tp53_lof_gof.py
 
-Pairwise Fisher exact tests and heatmaps, stratified by TP53 **LoF** vs **GoF/missense**
-(two separate cohorts; WT samples are excluded).
+Pipeline — **Step 4** (LUAD; TP53 LoF vs GoF strata)
 
-Based on step2 logic; reads the step 3 matrix under `data/processed/lof_gof/`.
+**Phase 3 continued — functional TP53:** pairwise Fisher exact tests and **−log₁₀(p)** heatmaps,
+**separately** within **TP53_LoF** and **TP53_GoF_missense** cohorts. **TP53_WT** (and other groups)
+are excluded so contrasts match the alternative-hypothesis framing.
+
+Same statistical core as **step 2**; reads the annotated matrix produced by **step 3**.
 
 Inputs
 ------
-- `data/processed/lof_gof/mutation_matrix_with_tp53_group.csv` (from step 3)
+- ``data/processed/lof_gof/mutation_matrix_with_tp53_group.csv`` (default; from step 3)
 
 Outputs
 -------
-- Figures under `outputs/figures/` (optional): LoF and GoF heatmaps
+- ``outputs/figures/fisher_tp53_lof_pairwise_heatmap.png``
+- ``outputs/figures/fisher_tp53_gof_missense_pairwise_heatmap.png``
 """
 
 from __future__ import annotations
@@ -110,7 +114,7 @@ def plot_fisher_heatmap(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fisher pairwise heatmaps: TP53 LoF vs GoF/missense strata.",
+        description="Step 4: Fisher pairwise heatmaps in TP53 LoF and GoF/missense strata (LUAD).",
     )
     parser.add_argument(
         "--matrix",
