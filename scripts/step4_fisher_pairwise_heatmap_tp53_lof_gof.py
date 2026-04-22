@@ -30,6 +30,8 @@ Outputs
 - ``outputs/figures/lof_vs_gof/rtk_structural_vs_point_patterns_TP53_LoF_vs_GoF_missense.png`` (stacked bar)
 - ``outputs/figures/lof_vs_gof/{GENE}_TP53_LoF_vs_GoF_missense_exploration.png`` (default gene **PDPK1**; ``--focus-gene``)
 - ``outputs/tables/step4_rtk_*_lof_vs_gof.tsv`` and ``step4_{GENE}_TP53_LoF_vs_GoF_contingency.tsv``
+- ``outputs/tables/lof_vs_gof/rtk_coding_MAF_cooccurrence_fisher_gene_pairs_TP53_LoF_and_GoF.tsv``
+  (RTK gene-pair co-mutation Fisher within each TP53 stratum + pooled)
 """
 
 from __future__ import annotations
@@ -63,6 +65,7 @@ from step3_classify_tp53_lof_vs_gof import (
     _write_rtk_pathway_enrichment_long_table,
     cna_gene_by_sample_to_sample_by_gene,
     fisher_amp_per_gene_pair,
+    fisher_cooccurrence_gene_pairs_both_tp53_strata,
     fisher_per_gene_lof_vs_gof,
     load_luad_point_matrix_for_genes,
     load_raw_cna_matrix,
@@ -553,6 +556,20 @@ def run_rtk_lof_vs_gof_pathway_enrichment(
     print(
         "[step4] RTK/RAS/PI3K: TP53_LoF vs TP53_GoF_missense within LUAD — "
         f"n_LoF={len(lof_g)}, n_GoF_missense={len(gof_g)}; {len(genes_rtk)} genes; TP53_WT excluded.",
+        file=sys.stderr,
+    )
+
+    lof_vs_gof_tables_dir = tables_dir / "lof_vs_gof"
+    lof_vs_gof_tables_dir.mkdir(parents=True, exist_ok=True)
+    tab_co_pairs = fisher_cooccurrence_gene_pairs_both_tp53_strata(lof_g, gof_g, genes_rtk)
+    co_pairs_path = (
+        lof_vs_gof_tables_dir
+        / "rtk_coding_MAF_cooccurrence_fisher_gene_pairs_TP53_LoF_and_GoF.tsv"
+    )
+    tab_co_pairs.to_csv(co_pairs_path, sep="\t", index=False)
+    print(
+        f"[step4] RTK pairwise co-occurrence Fisher (LoF, GoF, pooled): {co_pairs_path} "
+        f"({len(tab_co_pairs)} gene pairs)",
         file=sys.stderr,
     )
 

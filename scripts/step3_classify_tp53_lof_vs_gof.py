@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from itertools import combinations
 from pathlib import Path
 
 import matplotlib
@@ -608,6 +609,111 @@ def fisher_per_gene_lof_vs_gof(
             out.loc[valid, "p_value"].astype(float).values
         )
         out.loc[valid, "fdr_bh"] = fdr
+    return out
+
+
+def _cooccurrence_counts_2x2(df: pd.DataFrame, g1: str, g2: str) -> tuple[int, int, int, int]:
+    """
+    Binary co-mutation table for genes ``g1`` (row) × ``g2`` (column):
+
+    ``[[both_mut, g1_only], [g2_only, neither]]`` with g1_only = g1 mut & g2 WT, etc.
+    """
+    s1 = _series_01(df, g1)
+    s2 = _series_01(df, g2)
+    both = int(((s1 == 1) & (s2 == 1)).sum())
+    g1_only = int(((s1 == 1) & (s2 == 0)).sum())
+    g2_only = int(((s1 == 0) & (s2 == 1)).sum())
+    neither = int(((s1 == 0) & (s2 == 0)).sum())
+    return both, g1_only, g2_only, neither
+
+
+def fisher_cooccurrence_gene_pairs_both_tp53_strata(
+    lof: pd.DataFrame,
+    gof: pd.DataFrame,
+    genes: list[str],
+) -> pd.DataFrame:
+    """
+    For each unordered gene pair, Fisher exact on the **co-mutation** 2×2 table **within**
+    ``TP53_LoF`` and **within** ``TP53_GoF_missense`` (coding binary columns only).
+
+    Rows are restricted to pairs where **each gene** has at least one mutant sample in **LoF**
+    and at least one mutant sample in **GoF**, so both strata support co-occurrence testing.
+
+    Also reports the same test on **pooled** LoF ∪ GoF (TP53-mutant LUAD only).
+
+    Odds ratio > 1 ⇒ positive association (co-occurrence more than independence); two-sided p.
+    """
+    n_lof, n_gof = len(lof), len(gof)
+    rows: list[dict] = []
+    genes_use = [g for g in genes if g in lof.columns or g in gof.columns]
+    for g1, g2 in combinations(sorted(set(genes_use)), 2):
+        m1_lof = int(_series_01(lof, g1).sum())
+        m2_lof = int(_series_01(lof, g2).sum())
+        m1_gof = int(_series_01(gof, g1).sum())
+        m2_gof = int(_series_01(gof, g2).sum())
+        if not (m1_lof >= 1 and m2_lof >= 1 and m1_gof >= 1 and m2_gof >= 1):
+            continue
+
+        a_l, b_l, c_l, d_l = _cooccurrence_counts_2x2(lof, g1, g2)
+        a_g, b_g, c_g, d_g = _cooccurrence_counts_2x2(gof, g1, g2)
+        pool = pd.concat([lof, gof], axis=0)
+        a_p, b_p, c_p, d_p = _cooccurrence_counts_2x2(pool, g1, g2)
+
+        def _safe_fisher(a: int, b: int, c: int, d: int) -> tuple[float, float]:
+            if a + b + c + d == 0:
+                return float("nan"), float("nan")
+            try:
+                return _fisher_2x2(a, b, c, d)
+            except ValueError:
+                return float("nan"), float("nan")
+
+        or_l, p_l = _safe_fisher(a_l, b_l, c_l, d_l)
+        or_g, p_g = _safe_fisher(a_g, b_g, c_g, d_g)
+        or_p, p_p = _safe_fisher(a_p, b_p, c_p, d_p)
+
+        rows.append(
+            {
+                "gene_a": g1,
+                "gene_b": g2,
+                "n_lof": n_lof,
+                "n_gof": n_gof,
+                "n_pooled": n_lof + n_gof,
+                "lof_both_mut": a_l,
+                "lof_g1_only": b_l,
+                "lof_g2_only": c_l,
+                "lof_neither": d_l,
+                "gof_both_mut": a_g,
+                "gof_g1_only": b_g,
+                "gof_g2_only": c_g,
+                "gof_neither": d_g,
+                "pooled_both_mut": a_p,
+                "pooled_g1_only": b_p,
+                "pooled_g2_only": c_p,
+                "pooled_neither": d_p,
+                "OR_cooccur_TP53_LoF": or_l,
+                "p_cooccur_TP53_LoF": p_l,
+                "OR_cooccur_TP53_GoF_missense": or_g,
+                "p_cooccur_TP53_GoF_missense": p_g,
+                "OR_cooccur_pooled_LoF_union_GoF": or_p,
+                "p_cooccur_pooled_LoF_union_GoF": p_p,
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+
+    fdr_specs = (
+        ("p_cooccur_TP53_LoF", "fdr_bh_cooccur_TP53_LoF"),
+        ("p_cooccur_TP53_GoF_missense", "fdr_bh_cooccur_TP53_GoF_missense"),
+        ("p_cooccur_pooled_LoF_union_GoF", "fdr_bh_cooccur_pooled_LoF_union_GoF"),
+    )
+    for pcol, fcol in fdr_specs:
+        valid = out[pcol].notna() & np.isfinite(out[pcol].astype(float))
+        if valid.any():
+            out.loc[valid, fcol] = benjamini_hochberg_fdr(
+                out.loc[valid, pcol].astype(float).values
+            )
     return out
 
 
